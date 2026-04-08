@@ -1,35 +1,47 @@
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+import os
 
 load_dotenv()
 
 llm = HuggingFaceEndpoint(
-    model="google/gemma-2-2b-it",
+    model="MiniMaxAI/MiniMax-M2.5",
     task="text-generation",
-    # api_key=os.getenv("HUGGINGFACE_API_KEY")
+    huggingfacehub_api_token=os.getenv("HUGGINGFACEHUB_API_TOKEN"),
+
+    # max_new_tokens=512,
+    temperature=0.7,
+    # do_sample=True,
+    # top_p=0.95,
+    repetition_penalty=1.1,
 )
 
 model = ChatHuggingFace(llm=llm)
 
 # 1st prompt -> detailed report
 template1 = PromptTemplate(
-    template='Write a detailed report on {topic}',
+    template='Write a detailed technical report on {topic}. Include explanation, examples and applications.',
     input_variables=['topic']
 )
 
-# 2nd prompt -> summary
 template2 = PromptTemplate(
-    template='Write a 5 line summary on the following text. /n {text}',
+    template='Summarize the following text in exactly 5 concise bullet points:\n{text}',
     input_variables=['text']
 )
 
-prompt1 = template1.invoke({'topic':'black hole'})
+parser = StrOutputParser()
 
-result = model.invoke(prompt1)
+# --- USING LCEL FORMAT ---
+# Chain 1 generates the detailed report and passes the string output
+chain1 = template1 | model | parser
 
-prompt2 = template2.invoke({'text':result.content})
+# Chain 2 takes the output of Chain 1 as "text", formats it into template2, runs the model, and parses the output
+chain2 = {"text": chain1} | template2 | model | parser
 
-result1 = model.invoke(prompt2)
+# Invoke the final chain which automatically runs chain1 first
+final_summary = chain2.invoke({'topic': 'black hole'})
 
-print(result1.content)
+print(final_summary)
