@@ -1,0 +1,107 @@
+# ============================================================
+# docker-compose.yml — Full Stack Deployment
+# ============================================================
+# Spins up all 3 services with one command: docker-compose up
+#
+# Services:
+#   1. ollama      — LLM inference server (Mistral model)
+#   2. rag-api     — FastAPI backend (RAG pipeline)
+#   3. rag-ui      — Streamlit frontend (chat interface)
+#
+# Usage:
+#   docker-compose up -d          # Start all services in background
+#   docker-compose logs -f        # Watch logs
+#   docker-compose down           # Stop all services
+# ============================================================
+
+version: "3.9"
+
+services:
+
+  # ── 1. Ollama — LLM Server ───────────────────────────────────────────────
+  # Runs Mistral 7B locally. No OpenAI API key needed. Completely free.
+  ollama:
+    image: ollama/ollama:latest   # Official Ollama Docker image
+    container_name: ollama
+    ports:
+      - "11434:11434"             # Ollama REST API
+    volumes:
+      # Persist downloaded models — so you don't re-download 4GB every restart
+      - ollama_models:/root/.ollama
+    # If you have NVIDIA GPU, uncomment these:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Pull Mistral on first startup ────────────────────────────────────────
+  # This runs once to download the Mistral model into Ollama.
+  # After the model is downloaded, this service exits (that's expected).
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    command: pull mistral
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: "no"   # Run once and exit
+
+  # ── 2. RAG API — FastAPI Backend ─────────────────────────────────────────
+  rag-api:
+    build: .
+    container_name: rag-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount your documents folder so you can add files without rebuilding
+      - ./documents:/app/documents
+      # Persist ChromaDB vectors across container restarts
+      - chroma_data:/app/chroma_store
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434  # Connect to Ollama service
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --workers 2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ── 3. Streamlit UI ───────────────────────────────────────────────────────
+  rag-ui:
+    build: .
+    container_name: rag-ui
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./documents:/app/documents
+      - chroma_data:/app/chroma_store
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - rag-api
+    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    restart: unless-stopped
+
+
+# ── Named Volumes ─────────────────────────────────────────────────────────
+# These persist data even when containers are stopped or rebuilt.
+volumes:
+  ollama_models:    # Stores downloaded LLM weights (~4GB for Mistral)
+  chroma_data:      # Stores ChromaDB vector index
