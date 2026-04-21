@@ -21,7 +21,7 @@ from langchain_community.document_loaders import (
     PyPDFLoader,          # For PDF files
     Docx2txtLoader,       # For Word documents (.docx)
     TextLoader,           # For .txt files
-    UnstructuredMarkdownLoader,  # For .md files
+    # UnstructuredMarkdownLoader,  # For .md files
     DirectoryLoader,      # Loads all files from a folder
 )
 
@@ -81,8 +81,7 @@ def load_documents(directory: Path) -> list:
             # encoding="utf-8" handles special characters in support docs
             loader = TextLoader(str(file_path), encoding="utf-8")
 
-        elif suffix == ".md":
-            loader = UnstructuredMarkdownLoader(str(file_path))
+
 
         else:
             logger.warning(f"Skipping unsupported file type: {file_path.name}")
